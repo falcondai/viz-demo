@@ -1,0 +1,255 @@
+<!doctype html>
+<style>
+	body
+	{
+		margin: 0;
+	}
+	
+	.x-axis 
+	{
+		stroke: none;
+		fill: #888;
+	}
+	
+	.x-axis text
+	{
+		font-family: sans-serif;
+	}
+	
+	.x-axis line
+	{
+		stroke: #888;
+	}
+	
+	.ref-line line
+	{
+		stroke: #888;
+	}
+	
+	.ref-line.hide
+	{
+		opacity: 0;
+	}
+	
+	#tooltip
+	{
+		position: absolute;
+		background: #eee;
+		padding: 10px;
+		border: 2px solid #666;
+		font-family: sans-serif;
+		font-size: 1em;
+	}
+	
+	#tooltip.hide
+	{
+		display: none;
+	}
+</style>
+<body>
+<script src="{{ url_for('static', filename='js/d3.v3.js') }}" type="text/javascript"></script>
+	
+<script type="text/javascript">
+
+var width = 900,
+	height = 500,
+	margin = [50, 10, 10, 10],
+	tooltip_m = [20, 50];
+
+var color = {
+	'Republican RT Republican': '#9E2017',
+	'Democrat RT Democrat': '#0D406B',
+	'Democrat RT Republican': '#79a5ca',
+	'Republican RT Democrat': '#d77176'
+};
+	
+var x = d3.scale.linear().range([margin[3], width-margin[1]]),
+	y = d3.scale.linear().range([height-margin[2], margin[0]]),
+	t = d3.time.scale().range([margin[3], width-margin[1]]),
+	xAxis = d3.svg.axis().scale(t).orient('top').tickSize(8, 4, 2).tickFormat(d3.time.format('%b'));
+	
+var data_url_base = '{{ url_for('static', filename='data') }}',
+	//data_urls = gen_data_url('47percent', 'hour');
+	//data_urls = gen_data_url('benghazi', 'hour');
+	data_urls = gen_data_url('wholeyear_daily', 'daily');
+
+var svg = d3.select('body').append('svg').attr('width', width).attr('height', height);
+
+var stack = d3.layout.stack().offset('silhouette').values(function(d) { return d.values; }),
+	area = d3.svg.area()
+		.x(function(d) { return x(d.x); })
+		.y0(function(d) { return y(d.y0); })
+		.y1(function(d) { return y(d.y0 + d.y); });
+
+var series = [], layers = [];
+
+var prev_ref_line = null;
+
+d3.csv(data_urls[0], function(rows) {
+	//series.push(normalize(rows, 'series2', 'Freq'));
+	series.push(normalize(rows, 'fullperiod', 'counttime'));
+	layers.push({
+		name: 'Democrat RT Democrat',
+		values: []
+	});
+	d3.csv(data_urls[2], function(rows) {
+		series.push(normalize(rows, 'fullperiod', 'counttime'));
+		layers.push({
+			name: 'Democrat RT Republican',
+			values: []
+		});
+		d3.csv(data_urls[1], function(rows) {
+			series.push(normalize(rows, 'fullperiod', 'counttime'));
+				layers.push({
+				name: 'Republican RT Democrat',
+				values: []
+			});
+			d3.csv(data_urls[3], function(rows) {
+				// finish loading all 4 series
+				series.push(normalize(rows, 'fullperiod', 'counttime'));
+				layers.push({
+					name: 'Republican RT Republican',
+					values: []
+				});
+				
+				var max = d3.max(series.map(function(x) { return x[x.length-1].order; }));
+				
+				// fill in 0 for missing instants
+				for (var i=0; i<4; i++) {
+					var s = series[i],
+						l = layers[i],
+						k = 0;
+					for (var j=1; j<=max; j++) {
+						if (k in s && s[k].order == j) {
+							l.values.push({
+								x: j,
+								y: s[k].freq
+							});
+							k++;
+						} else {
+							l.values.push({
+								x: j,
+								y: 0
+							});
+						}
+					}
+				}
+				
+				x.domain([1, max]);
+				t.domain(d3.extent(d3.merge(series), function(x) { return x.date; }).map(d3.time.format('%Y-%m-%d %X').parse));
+				var sl = stack(layers);
+				y.domain([0, d3.max(sl, function(layer) { return d3.max(layer.values, function(d) { return d.y0 + d.y; }); })]);
+				
+				// draw axis
+				svg.append('g')
+					.attr('class', 'x-axis')
+					.attr('transform', 'translate(0,30)')
+					.call(xAxis);
+				
+				// show graph
+				svg.selectAll("path.layer")
+					.data(sl)
+					.enter().append("path").attr('class', 'layer')
+					.attr('d', function(d) { return area(d.values); })
+					.attr('fill', function(d) { return color[d.name]; })
+					.append('title')
+					.text(function(d) { return d.name; });
+				
+				// reference lines and info
+				var instants = d3.zip.apply(this, layers.map(function(l) {
+					return l.values.map(function(e) { 
+						return { name: l.name, x: e.x, y: e.y }; 
+					});
+				})).map(function(a) { 
+					return a.reduce(function(u, v) {
+							u[v.name] = v.y;
+							return u;
+						}, {x: a[0].x});
+					}
+				);
+					
+				var rl = svg.selectAll('g.ref-line')
+					.data(instants)
+					.enter().append('g').attr('class', 'ref-line hide')
+					.attr('id', function(d) { return 'ref-'+d.x; })
+					.attr('transform', function(d) { return 'translate('+x(d.x)+',0)'; });
+				
+				rl.append('line')
+					.attr('x1', 0).attr('y1', 0)
+					.attr('x2', 0).attr('y2', height);
+				
+				// hover control
+				var tooltip = d3.select('body').append('div').attr('id', 'tooltip').classed('hide', true);
+				tooltip.append('div').attr('id', 'date');
+				tooltip.append('div').attr('id', 'rr');
+				tooltip.append('div').attr('id', 'rd');
+				tooltip.append('div').attr('id', 'dr');
+				tooltip.append('div').attr('id', 'dd');
+				
+				svg.on('mousemove.ref', function() {
+					//console.log(d3.event.x);
+					if (prev_ref_line) {
+						d3.select('#'+prev_ref_line).classed('hide', true);
+					}
+					var id = nearest_ref_line(d3.event.x, margin, max);
+					if (id) {
+						var r = d3.select('#'+id).classed('hide', false),
+							d = r.datum();
+						
+						tooltip.select('#date').text(d3.time.format('%x')(t.invert(x(d.x))));
+						tooltip.select('#dd').html('Democrat RT Democrat: <b>'+d['Democrat RT Democrat']+'</b>');
+						tooltip.select('#rd').html('Republican RT Democrat: <b>'+d['Republican RT Democrat']+'</b>');
+						tooltip.select('#dr').html('Democrat RT Republican: <b>'+d['Democrat RT Republican']+'</b>');
+						tooltip.select('#rr').html('Republican RT Republican: <b>'+d['Republican RT Republican']+'</b>');
+						
+						tooltip.classed('hide', false).style('left', (d3.event.x+tooltip_m[0])+'px').style('top', (d3.event.y+tooltip_m[1])+'px');
+					} else {
+						tooltip.classed('hide', true);
+					}
+					prev_ref_line = id;
+				});
+	
+			});
+		});
+	});
+});
+
+function normalize(rows, order_header, freq_header) {
+	for (var i in rows) {
+		var r = rows[i];
+		r.id = r[''];
+		r.order = parseInt(r[order_header]);
+		r.freq = parseInt(r[freq_header]);
+		delete r[''];
+		delete r[order_header];
+		delete r[freq_header];	
+	}
+	return rows;
+}
+
+function gen_data_url(category, freq) {
+	var b = data_url_base+'/'+category+'/';
+	var p = ['dem', 'rep'];
+	var urls = [];
+	for (var i in p) {
+		for (var j in p) {
+			urls.push(b+p[i]+p[j]+freq+'.csv');
+		}
+	}
+	return urls;
+}
+
+function nearest_ref_line(mx, margins, num_lines) {
+	if (mx > width - margins[3] || mx < margins[1]) {
+		return null;
+	}
+	
+	var i = (width - margins[1] - margins[3]) / num_lines,
+		n = Math.floor((mx - margins[1]) / i),
+		l = (mx - margins[1]) / i - i * n;
+	
+	return 'ref-' + Math.min(num_lines, Math.max(1, (l < i/2)? 1+n : 2+n));
+}
+
+</script>
+</body>

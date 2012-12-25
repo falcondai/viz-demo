@@ -1,0 +1,195 @@
+<!doctype html>
+<html>
+<head>
+	<title>Bubbles</title>
+	
+	<meta name="viewport" content="width=device-width user-scalable=no" />
+	<link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.css') }}" />
+	<style>
+		html, body {
+			padding: 0;
+			margin: 0;
+			height: 100%;
+		}
+		
+		body {
+			overflow: hidden;
+			background-image: url({{ url_for('static', filename='img/bg_noise.png') }});
+			#background-color: black;
+		}
+		
+		#toolbar {
+			position: absolute;
+			width: 100%;
+			height: 40px;
+			bottom: 0;
+			background-image: -webkit-linear-gradient(white, #E9E9E9);
+			box-shadow: 0 0 10px #A5A5A5;
+		}
+		
+		#toolbar .btn {
+			float: right;
+			margin: 0;
+			margin: 5px 10px;
+		}
+		
+		.brand {
+			display: block;
+			float: left;
+			margin: 10px;
+			font-size: 20px;
+			font-weight: 200;
+			color: #777;
+			text-shadow: 0 1px 0 white;
+		}
+		
+		#playground {
+			line-height: 0;
+			height: 100%;
+		}
+		
+		.link {
+			stroke: #888;
+			stroke-width: 3;
+		}
+		
+		.node {
+			stroke: red;
+			fill: white;
+		}
+	</style>
+	
+	<script src="{{ url_for('static', filename='js/d3.v2.js') }}" type="text/javascript"></script>
+</head>
+<body>
+	<div id="playground">
+		
+	</div>
+	<div id="toolbar">
+		<div class="brand">Bubbles Demo</div>
+		<a id="add-btn" class="btn" href="#"><i class="icon-plus"></i></a>
+	</div>
+	
+	<script type="text/javascript">
+		var link_distance = 100;
+		var fin_length = 10;
+		var fin_angle = 0.2;
+		var node_radius = 20;
+		pg_width = document.body.clientWidth;
+		pg_height = document.body.clientHeight;
+		
+		var svg = d3.select('#playground').append('svg');
+		
+		// test data generation
+		///*
+		var data = {'nodes': [], 'links': []};
+		for (var i=0; i<10; i++) {
+			data.nodes.push({
+				'index': i,
+				'text': i.toString(),
+				'x': Math.random() * pg_width,
+				'y': Math.random() * pg_height,
+			});
+			if (i < 5) {
+				data.links.push({
+					'source': i,
+					'target': i+1,
+				});
+			}
+		}
+		data.links.push({
+			'source': 8,
+			'target': 1,
+		});
+		//*/
+		/*
+		var xhr = new XMLHttpRequest();
+		xhr.open('GET', '/static/data/test.json', false);
+		xhr.send();
+		data = JSON.parse(xhr.responseText);
+		*/
+		
+		var force = d3.layout.force().size([pg_width, pg_height]).distance(link_distance).gravity(0.05).charge(-200).theta(0.9).nodes(data.nodes).links(data.links).start();
+		
+		var links = svg.selectAll('.link').data(data.links).enter().append('g').attr('class', 'link');
+		var nodes = svg.selectAll('.node').data(data.nodes).enter().append('g').attr('class', 'node').call(force.drag);
+		links.append('line').attr('class', 'arrow');
+		links.append('line').attr('class', 'fin0');
+		links.append('line').attr('class', 'fin1');
+		
+		nodes.append('circle').attr('r', node_radius);
+		nodes.append('text').text(function(d) {return d.text;}).attr('text-anchor', 'middle').attr('dy', '.35em');
+		
+		force.on('tick', function() {
+			links.select('.arrow').attr('x1', function(d) {return d.source.x;})
+				.attr('y1', function(d) {return d.source.y;})
+				.attr('x2', function(d) {return arrow_x(d);})
+				.attr('y2', function(d) {return arrow_y(d);});
+				
+			links.select('.fin0').attr('x1', function(d) {return arrow_x(d);})
+				.attr('y1', function(d) {return arrow_y(d);})
+				.attr('x2', function(d) {return fin_x(true, d);})
+				.attr('y2', function(d) {return fin_y(true, d);});
+				
+			links.select('.fin1').attr('x1', function(d) {return arrow_x(d);})
+				.attr('y1', function(d) {return arrow_y(d);})
+				.attr('x2', function(d) {return fin_x(false, d);})
+				.attr('y2', function(d) {return fin_y(false, d);});
+			
+			nodes.attr('transform', function(d) { return 'translate('+d.x+','+d.y+')'; });
+		});
+		
+		// return the x coordinate of the open end of the fins
+		function fin_x(upper, d) {
+			var tx = arrow_x(d);
+			var ty = arrow_y(d);
+			var lx = d.source.x - tx;
+			var ly = d.source.y - ty;
+			var n = Math.sqrt(dot(lx, ly, lx, ly));
+			var p = Math.cos(fin_angle) * fin_length;
+			var	o = Math.sin(fin_angle) * fin_length;
+			return (upper)? (p * lx + o * ly) / n + tx : (p * lx - o * ly) / n + tx;
+		}
+		
+		// return the y coordinate of the open end of the fins
+		function fin_y(upper, d) {
+			var tx = arrow_x(d);
+			var ty = arrow_y(d);
+			var lx = d.source.x - tx;
+			var ly = d.source.y - ty;
+			var n = Math.sqrt(dot(lx, ly, lx, ly));
+			var p = Math.cos(fin_angle) * fin_length;
+			var	o = Math.sin(fin_angle) * fin_length;
+			return (upper)? (p * ly - o * lx) / n + ty : (p * ly + o * lx) / n + ty;
+		}
+		
+		// return x-coord of arrow endpoint
+		function arrow_x(d) {
+			var lx = d.source.x - d.target.x;
+			var ly = d.source.y - d.target.y;
+			var n = Math.sqrt(dot(lx, ly, lx, ly));
+			return node_radius * lx / n + d.target.x;
+		}
+		
+		// return y-coord of arrow endpoint
+		function arrow_y(d) {
+			var lx = d.source.x - d.target.x;
+			var ly = d.source.y - d.target.y;
+			var n = Math.sqrt(dot(lx, ly, lx, ly));
+			return  node_radius * ly / n + d.target.y;
+		}
+		
+		function dot(x1, y1, x2, y2) {
+			return x1*x2 + y1*y2;
+		}
+		
+		// centers the graph
+		window.onresize = function() {
+			force.size([document.body.clientWidth, document.body.clientHeight]).start();
+		}
+		
+		// disables scrolling on iOS
+		document.body.addEventListener('touchmove', function(e){ e.preventDefault(); }); document.body.addEventListener('touchstart', function(e){ e.preventDefault(); }); 
+	</script>
+</body>
+</html>
