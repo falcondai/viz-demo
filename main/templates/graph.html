@@ -66,12 +66,12 @@ var color = {
 var x = d3.scale.linear().range([margin[3], width-margin[1]]),
 	y = d3.scale.linear().range([height-margin[2], margin[0]]),
 	t = d3.time.scale().range([margin[3], width-margin[1]]),
-	xAxis = d3.svg.axis().scale(t).orient('top').tickSize(8, 4, 2).tickFormat(d3.time.format('%b'));
-	
+	xAxis = d3.svg.axis().scale(t).orient('top').tickSize(8, 4, 2).tickFormat(d3.time.format('{{ axis_format }}')).tickPadding(5);
+
+// inject vars
 var data_url_base = '{{ url_for('static', filename='data') }}',
-	//data_urls = gen_data_url('47percent', 'hour');
-	//data_urls = gen_data_url('benghazi', 'hour');
-	data_urls = gen_data_url('wholeyear_daily', 'daily');
+	data_urls = gen_data_url('{{ dataset }}', '{{ freq }}'),
+	order_header = '{{ order_header }}', freq_header = '{{ freq_header }}';
 
 var svg = d3.select('body').append('svg').attr('width', width).attr('height', height);
 
@@ -86,40 +86,39 @@ var series = [], layers = [];
 var prev_ref_line = null;
 
 d3.csv(data_urls[0], function(rows) {
-	//series.push(normalize(rows, 'series2', 'Freq'));
-	series.push(normalize(rows, 'fullperiod', 'counttime'));
+	series.push(normalize(rows, order_header, freq_header));
 	layers.push({
 		name: 'Democrat RT Democrat',
 		values: []
 	});
 	d3.csv(data_urls[2], function(rows) {
-		series.push(normalize(rows, 'fullperiod', 'counttime'));
+		series.push(normalize(rows, order_header, freq_header));
 		layers.push({
 			name: 'Democrat RT Republican',
 			values: []
 		});
 		d3.csv(data_urls[1], function(rows) {
-			series.push(normalize(rows, 'fullperiod', 'counttime'));
+			series.push(normalize(rows, order_header, freq_header));
 				layers.push({
 				name: 'Republican RT Democrat',
 				values: []
 			});
 			d3.csv(data_urls[3], function(rows) {
 				// finish loading all 4 series
-				series.push(normalize(rows, 'fullperiod', 'counttime'));
+				series.push(normalize(rows, order_header, freq_header));
 				layers.push({
 					name: 'Republican RT Republican',
 					values: []
 				});
 				
-				var max = d3.max(series.map(function(x) { return x[x.length-1].order; }));
+				var extent = d3.extent(d3.merge(series).map(function(x) { return x.order; }));
 				
 				// fill in 0 for missing instants
 				for (var i=0; i<4; i++) {
 					var s = series[i],
 						l = layers[i],
 						k = 0;
-					for (var j=1; j<=max; j++) {
+					for (var j=extent[0]; j<=extent[1]; j++) {
 						if (k in s && s[k].order == j) {
 							l.values.push({
 								x: j,
@@ -135,7 +134,7 @@ d3.csv(data_urls[0], function(rows) {
 					}
 				}
 				
-				x.domain([1, max]);
+				x.domain([extent[0], extent[1]]);
 				t.domain(d3.extent(d3.merge(series), function(x) { return x.date; }).map(d3.time.format('%Y-%m-%d %X').parse));
 				var sl = stack(layers);
 				y.domain([0, d3.max(sl, function(layer) { return d3.max(layer.values, function(d) { return d.y0 + d.y; }); })]);
@@ -168,7 +167,7 @@ d3.csv(data_urls[0], function(rows) {
 					}
 				);
 					
-				var rl = svg.selectAll('g.ref-line')
+				var rl = svg.append('g').selectAll('g.ref-line')
 					.data(instants)
 					.enter().append('g').attr('class', 'ref-line hide')
 					.attr('id', function(d) { return 'ref-'+d.x; })
@@ -187,16 +186,15 @@ d3.csv(data_urls[0], function(rows) {
 				tooltip.append('div').attr('id', 'dd');
 				
 				svg.on('mousemove.ref', function() {
-					//console.log(d3.event.x);
 					if (prev_ref_line) {
 						d3.select('#'+prev_ref_line).classed('hide', true);
 					}
-					var id = nearest_ref_line(d3.event.x, margin, max);
+					var id = nearest_ref_line(d3.event.x, margin, extent);
 					if (id) {
 						var r = d3.select('#'+id).classed('hide', false),
 							d = r.datum();
 						
-						tooltip.select('#date').text(d3.time.format('%x')(t.invert(x(d.x))));
+						tooltip.select('#date').text(d3.time.format('{{ tt_format }}')(t.invert(x(d.x))));
 						tooltip.select('#dd').html('Democrat RT Democrat: <b>'+d['Democrat RT Democrat']+'</b>');
 						tooltip.select('#rd').html('Republican RT Democrat: <b>'+d['Republican RT Democrat']+'</b>');
 						tooltip.select('#dr').html('Democrat RT Republican: <b>'+d['Democrat RT Republican']+'</b>');
@@ -239,16 +237,17 @@ function gen_data_url(category, freq) {
 	return urls;
 }
 
-function nearest_ref_line(mx, margins, num_lines) {
+function nearest_ref_line(mx, margins, extent) {
 	if (mx > width - margins[3] || mx < margins[1]) {
 		return null;
 	}
 	
-	var i = (width - margins[1] - margins[3]) / num_lines,
+	var num_lines = extent[1] - extent[0] + 1,
+		i = (width - margins[1] - margins[3]) / num_lines,
 		n = Math.floor((mx - margins[1]) / i),
-		l = (mx - margins[1]) / i - i * n;
+		l = (mx - margins[1]) - i * n;
 	
-	return 'ref-' + Math.min(num_lines, Math.max(1, (l < i/2)? 1+n : 2+n));
+	return 'ref-' + (extent[0]-1+Math.min(num_lines, Math.max(1, (l < i/2)? 1+n : 2+n)));
 }
 
 </script>
